@@ -15,7 +15,7 @@ void log_stderr(){
     write(STDERR_FILENO, "\n", 1);
 }
 
-int main(){
+int main(int argc, char *argv[]){
     
     int client_fd;
     int bytes_sent, bytes_received;
@@ -45,14 +45,17 @@ int main(){
         return -1;
     }
 
-    if((bytes_sent = send(client_fd, get_request, sizeof(get_request), 0)) == -1){
+    if((bytes_sent = send(client_fd, get_request, strlen(get_request), 0)) == -1){
         log_stderr;
         return -1;
     }
-    if((bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0)) == -1){
+    if((bytes_received = recv(client_fd, rec_buffer, sizeof(rec_buffer) - 1, 0)) == -1){
         log_stderr;
         return -1;
     }
+    rec_buffer[bytes_received] = '\0';
+    printf("BYTES RECEIVED:\n%s",rec_buffer);
+
 
     close(client_fd);
     return 0;
