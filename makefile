@@ -1,7 +1,7 @@
 build:
-	gcc -o $(exe)  $(exe).c `sdl2-config --cflags --libs` -lm -lcurl -g
+	gcc -o $(exe)  $(exe).c -g
 run:
 	./$(exe)
 
 br:
-	gcc -o $(exe)  $(exe).c `sdl2-config --cflags --libs` -lm -lcurl -g && ./$(exe)
+	gcc -o $(exe)  $(exe).c -g && ./$(exe)
