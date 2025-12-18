@@ -62,15 +62,22 @@ int main(int argc, char *argv[]){
         }
 
         if ((connect(client_fd, next->ai_addr, next->ai_addrlen)) == -1) {
+            close(client_fd);
             log_stderr;
         }
         else {
             break;
         }
-        break;
         
     }
+
+    freeaddrinfo(result);
+    if(next == NULL){
+        fprintf(stderr, "Could not connect\n");
+        exit(EXIT_FAILURE);
+    }
     
+    // send and receive loop
 
 /*
     if((bytes_sent = send(client_fd, get_request, strlen(get_request), 0)) == -1){
