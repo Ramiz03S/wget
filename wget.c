@@ -22,14 +22,20 @@ void parse_argv(char * URL, char ** host, char ** path, char ** protocol){
 
 }
 
-void form_get_req(char * host, char * path, char * get_req){
-    snprintf(get_req, 1023, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", path, host);
+void form_get_req(char * host, char * path, char * get_req_buffer, int connection_flag){
+    if (connection_flag){
+        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET /%s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n", path, host);
+    }
+    else{
+        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET /%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
+    }
 }
 int main(int argc, char *argv[]){
     
     int client_fd;
     int ret;
     int bytes_sent, bytes_received;
+    int total_bytes_received = 0;
 
     struct addrinfo hints;
     struct addrinfo * result, * next;
@@ -46,13 +52,13 @@ int main(int argc, char *argv[]){
     char * path = (char *)calloc(100,1);
     char * protocol = (char *)calloc(10,1);
     parse_argv(argv[1], &host, &path, &protocol);
-    form_get_req(host, path, get_req_buffer);
+    
 
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
-    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-    hints.ai_protocol = 0;          /* Any protocol */
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
     hints.ai_canonname = NULL;
     hints.ai_addr = NULL;
     hints.ai_next = NULL;
@@ -63,12 +69,10 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-    for(next = result; next != NULL; next = result->ai_next){
-
+    for(next = result; next != NULL; next = next->ai_next){
         if((client_fd = socket(next->ai_family, next->ai_socktype, next->ai_protocol)) == -1){
         continue;
         }
-
         if ((connect(client_fd, next->ai_addr, next->ai_addrlen)) == -1) {
             close(client_fd);
             log_stderr;
@@ -76,27 +80,33 @@ int main(int argc, char *argv[]){
         else {
             break;
         }
-        
     }
 
-    freeaddrinfo(result);
     if(next == NULL){
         fprintf(stderr, "Could not connect\n");
         exit(EXIT_FAILURE);
     }
     
     // send and receive loop
-    if((bytes_sent = send(client_fd, get_req_buffer, strlen(get_req_buffer), 0)) == -1){
+    form_get_req(host, path, get_req_buffer, 1);
+    bytes_sent = send(client_fd, get_req_buffer, strlen(get_req_buffer), 0);
+    if( bytes_sent == -1 || bytes_sent < strlen(get_req_buffer)){
         log_stderr;
     }
-    if((bytes_received = recv(client_fd, rec_buffer, sizeof(rec_buffer) - 1, 0)) == -1){
+    bytes_received = recv(client_fd, rec_buffer, sizeof(rec_buffer) - 1, 0);
+    total_bytes_received += bytes_received;
+    if(bytes_received == -1){
         log_stderr;
     }
     rec_buffer[bytes_received] = '\0';
-    printf("BYTES RECEIVED:\n%s",rec_buffer);
+    printf("%d BYTES SENT:\n%s\n", bytes_sent, get_req_buffer);
+    printf("%d BYTES RECEIVED:\n%s\n", bytes_received, rec_buffer);
 
 
-
+    free(protocol);
+    free(host);
+    free(path);
+    freeaddrinfo(result);
     close(client_fd);
     return 0;
 }
