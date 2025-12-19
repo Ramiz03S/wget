@@ -8,19 +8,47 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include "mpc.h"
 #define GET_REQ_BUFF_SIZE 1024
 #define REC_BUFF_SIZE 1024
+
+typedef struct URL_Components_t {
+    char * scheme;
+    char * host;
+    char * port;
+    char * path;
+} URL_Components_t;
+
+void free_URL_Components_t(URL_Components_t * URL){
+    free(URL->scheme);
+    free(URL->host);
+    free(URL->port);
+    free(URL->path);
+}
 
 void log_stderr(){
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
 }
 
-void parse_argv(char * URL, char ** host, char ** path, char ** protocol){
+void parse_URL(char * URL, URL_Components_t * URL_Componenets){
+    mpc_parser_t *url  = mpc_new("url");
+    mpc_parser_t *scheme  = mpc_new("scheme");
+    mpc_parser_t *host  = mpc_new("host");
+    mpc_parser_t *port = mpc_new("port");
+    mpc_parser_t *path = mpc_new("path");
+    mpc_parser_t *query = mpc_new("query");
+    mpc_parser_t *fragments = mpc_new("fragments");
+
+    mpca_lang(MPCA_LANG_DEFAULT,
+    "url : "
+    "scheme : "
+    "host : "
+    "port : "
+    "query : "
+    "fragments : ",
+    url, scheme, host, port, path, query, fragments, NULL);
     
-    *protocol = strtok(URL,"://");
-    *host = strtok(NULL,"/");
-    *path = strtok(NULL,"");
 
 }
 
@@ -32,6 +60,7 @@ void form_get_req(char * host, char * path, char * get_req_buffer, int connectio
         snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET /%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
     }
 }
+
 int main(int argc, char *argv[]){
     
     int client_fd;
@@ -45,15 +74,17 @@ int main(int argc, char *argv[]){
     char rec_buffer[REC_BUFF_SIZE] = {0};
     char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
 
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s protocol://host/path\n", argv[0]);
+    URL_Components_t URL_Components;
+
+    if(argc != 2) {
+        fprintf(stderr, "Usage: %s scheme://host/path\n", argv[0]);
         exit(EXIT_FAILURE);
     }
-
-    char * host = (char *)calloc(100,1);
-    char * path = (char *)calloc(100,1);
-    char * protocol = (char *)calloc(10,1);
-    parse_argv(argv[1], &host, &path, &protocol);
+    if(strlen(argv[1]) > 2048){
+        fprintf(stderr, "Lenght of URL exceeds the limit of 2048 characters\n");
+        exit(EXIT_FAILURE);
+    }
+    parse_URL(argv[1], &URL_Components);
     
 
     memset(&hints, 0, sizeof(hints));
@@ -66,7 +97,7 @@ int main(int argc, char *argv[]){
     hints.ai_next = NULL;
     
     
-    if((ret = getaddrinfo(host, protocol, &hints, &result)) != 0){
+    if((ret = getaddrinfo(URL_Components.host, URL_Components.scheme, &hints, &result)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
         exit(EXIT_FAILURE);
     }
@@ -90,7 +121,7 @@ int main(int argc, char *argv[]){
     }
     
     // send and receive loop
-    form_get_req(host, path, get_req_buffer, 1);
+    form_get_req(URL_Components.host, URL_Components.path, get_req_buffer, 1);
     bytes_sent = send(client_fd, get_req_buffer, strlen(get_req_buffer), 0);
     if( bytes_sent == -1 || bytes_sent < strlen(get_req_buffer)){
         log_stderr;
@@ -105,9 +136,7 @@ int main(int argc, char *argv[]){
     printf("%d BYTES RECEIVED:\n%s\n", bytes_received, rec_buffer);
 
 
-    free(protocol);
-    free(host);
-    free(path);
+    free_URL_Components_t(&URL_Components);
     freeaddrinfo(result);
     close(client_fd);
     return 0;
