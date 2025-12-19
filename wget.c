@@ -8,6 +8,8 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#define GET_REQ_BUFF_SIZE 1024
+#define REC_BUFF_SIZE 1024
 
 void log_stderr(){
     fprintf(stderr, "%s\n", strerror(errno));
@@ -40,11 +42,11 @@ int main(int argc, char *argv[]){
     struct addrinfo hints;
     struct addrinfo * result, * next;
 
-    char rec_buffer[1024] = {0};
-    char get_req_buffer[1024] = {0};
+    char rec_buffer[REC_BUFF_SIZE] = {0};
+    char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
 
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s url\n", argv[0]);
+        fprintf(stderr, "Usage: %s protocol://host/path\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
