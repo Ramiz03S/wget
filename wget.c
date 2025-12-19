@@ -8,21 +8,23 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <errno.h>
-#define PORT 8080
 
 void log_stderr(){
     fprintf(stderr, "%s\n", strerror(errno));
     exit(EXIT_FAILURE);
 }
 
-void parse_argv(char * argv){
+void parse_argv(char * URL, char ** host, char ** path, char ** protocol){
+    
+    *protocol = strtok(URL,"://");
+    *host = strtok(NULL,"/");
+    *path = strtok(NULL,"");
 
 }
 
 void form_get_req(char * host, char * path, char * get_req){
-    sscanf(get_req, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", path, host);
+    snprintf(get_req, 1023, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", path, host);
 }
-// wget https://wordpress.org/latest.zip
 int main(int argc, char *argv[]){
     
     int client_fd;
@@ -32,13 +34,19 @@ int main(int argc, char *argv[]){
     struct addrinfo hints;
     struct addrinfo * result, * next;
 
-    //har get_request[] = "GET /contact HTTP/1.1\r\nHost: example.com\r\n\r\n";
     char rec_buffer[1024] = {0};
+    char get_req_buffer[1024] = {0};
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s url\n", argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    char * host = (char *)calloc(100,1);
+    char * path = (char *)calloc(100,1);
+    char * protocol = (char *)calloc(10,1);
+    parse_argv(argv[1], &host, &path, &protocol);
+    form_get_req(host, path, get_req_buffer);
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
@@ -50,7 +58,7 @@ int main(int argc, char *argv[]){
     hints.ai_next = NULL;
     
     
-    if((ret = getaddrinfo(NULL, argv[1], &hints, &result)) != 0){
+    if((ret = getaddrinfo(host, protocol, &hints, &result)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
         exit(EXIT_FAILURE);
     }
@@ -78,9 +86,7 @@ int main(int argc, char *argv[]){
     }
     
     // send and receive loop
-
-/*
-    if((bytes_sent = send(client_fd, get_request, strlen(get_request), 0)) == -1){
+    if((bytes_sent = send(client_fd, get_req_buffer, strlen(get_req_buffer), 0)) == -1){
         log_stderr;
     }
     if((bytes_received = recv(client_fd, rec_buffer, sizeof(rec_buffer) - 1, 0)) == -1){
@@ -88,10 +94,9 @@ int main(int argc, char *argv[]){
     }
     rec_buffer[bytes_received] = '\0';
     printf("BYTES RECEIVED:\n%s",rec_buffer);
-*/
+
 
 
     close(client_fd);
-    freeaddrinfo(result);
     return 0;
 }
