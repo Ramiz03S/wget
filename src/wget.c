@@ -38,17 +38,36 @@ void parse_URL(char * URL, URL_Components_t * URL_Componenets){
     mpc_parser_t *port = mpc_new("port");
     mpc_parser_t *path = mpc_new("path");
     mpc_parser_t *query = mpc_new("query");
-    mpc_parser_t *fragments = mpc_new("fragments");
-
-    mpca_lang(MPCA_LANG_DEFAULT,
-    "url : "
-    "scheme : "
-    "host : "
-    "port : "
-    "query : "
-    "fragments : ",
-    url, scheme, host, port, path, query, fragments, NULL);
+    mpc_parser_t *fragment = mpc_new("fragment");
     
+    mpc_err_t * err = mpca_lang(MPCA_LANG_DEFAULT,
+    "url : /^/ (<scheme>\"://\")? <host> (\":\"<port>)? <path>? (\"?\"<query>)? (\"#\"<fragment>)? /$/;"
+    "scheme : \"http\" | \"https\";"
+    "host : /[a-zA-Z0-9-.]+/;"
+    "port : /[0-9]+/;"
+    "path : \"/\" /[a-zA-Z0-9-.\\/]+/ ;"
+    "query : /[^#]*/ ;"
+    "fragment : /.*/ ;",
+    url, scheme, host, port, path, query, fragment, NULL);
+
+    if( err != NULL){
+        
+        fprintf(stderr, "mpca_lang() failed: %s\n",err->failure);
+        exit(EXIT_FAILURE);
+    };
+
+    mpc_result_t r;
+    
+    if(mpc_parse("url input", URL, url, &r)){
+        mpc_ast_print(r.output);
+        mpc_ast_delete(r.output);
+    } else {
+        mpc_err_print(r.error);
+        mpc_err_delete(r.error);
+    }
+    
+    mpc_cleanup(7, url, scheme, host, port, path, query, fragment);
+
 
 }
 
