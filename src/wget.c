@@ -31,52 +31,65 @@ void log_stderr(){
     exit(EXIT_FAILURE);
 }
 
+void find_component(mpc_ast_t *a, char * component, char ** found_contents) {
+ 
+    for (int i = 0; i < a->children_num; i++) {
+        mpc_ast_t * child = a->children[i];
+        if(strstr(child->tag, component)){
+          *found_contents = calloc(strlen(child->contents)+1, 1);
+          memcpy(*found_contents, child->contents, strlen(child->contents)+1);
+          break;
+        }
+  }
+
+}
+
 void parse_URL(char * URL, URL_Components_t * URL_Componenets){
     mpc_parser_t *url  = mpc_new("url");
     mpc_parser_t *scheme  = mpc_new("scheme");
     mpc_parser_t *host  = mpc_new("host");
     mpc_parser_t *port = mpc_new("port");
-    mpc_parser_t *path = mpc_new("path");
-    mpc_parser_t *query = mpc_new("query");
-    mpc_parser_t *fragment = mpc_new("fragment");
+    mpc_parser_t *path = mpc_new("path");    
     
     mpc_err_t * err = mpca_lang(MPCA_LANG_DEFAULT,
-    "url : /^/ (<scheme>\"://\")? <host> (\":\"<port>)? <path>? (\"?\"<query>)? (\"#\"<fragment>)? /$/;"
-    "scheme : \"http\" | \"https\";"
-    "host : /[a-zA-Z0-9-.]+/;"
-    "port : /[0-9]+/;"
-    "path : \"/\" /[a-zA-Z0-9-.\\/]+/ ;"
-    "query : /[^#]*/ ;"
-    "fragment : /.*/ ;",
-    url, scheme, host, port, path, query, fragment, NULL);
+        "url : /^/ (<scheme>\"://\")? <host> (\":\"<port>)? <path>? /.*/ /$/;"
+        "scheme : \"http\" | \"https\";"
+        "host : /[a-zA-Z0-9-.]+/;"
+        "port : /[0-9]+/;"
+        "path :  /[\\/]([a-zA-Z0-9-.]+[\\/]?)*/ ;",
+        url, scheme, host, port, path, NULL);
 
     if( err != NULL){
-        
         fprintf(stderr, "mpca_lang() failed: %s\n",err->failure);
         exit(EXIT_FAILURE);
     };
 
     mpc_result_t r;
+    mpc_ast_t * output;
     
     if(mpc_parse("url input", URL, url, &r)){
         mpc_ast_print(r.output);
+        output = (mpc_ast_t *)r.output;
+        find_component(output, "scheme", &(URL_Componenets->scheme));
+        find_component(output, "host", &(URL_Componenets->host));
+        find_component(output, "port", &(URL_Componenets->port));
+        find_component(output, "path", &(URL_Componenets->path));
         mpc_ast_delete(r.output);
     } else {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
+        mpc_cleanup(5, url, scheme, host, port, path);
+        exit(EXIT_FAILURE);
     }
-    
-    mpc_cleanup(7, url, scheme, host, port, path, query, fragment);
-
-
+    mpc_cleanup(5, url, scheme, host, port, path);
 }
 
 void form_get_req(char * host, char * path, char * get_req_buffer, int connection_flag){
     if (connection_flag){
-        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET /%s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n", path, host);
+        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n", path, host);
     }
     else{
-        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET /%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
+        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
     }
 }
 
