@@ -57,11 +57,11 @@ void parse_URL(char * URL, URL_Components_t * URL_Componenets){
     mpc_parser_t *path = mpc_new("path");    
     
     mpc_err_t * err = mpca_lang(MPCA_LANG_DEFAULT,
-        "url : /^/ (<scheme>\"://\")? <host> (\":\"<port>)? <path>? /.*/ /$/;"
+        "url : /^/ (<scheme>\"://\")? <host> (\":\"<port>)? <path>? (\"?\" /[^#\\r\\n]*/)? (\"#\" /[^\\r\\n]*/)? /$/;"
         "scheme : \"http\" | \"https\";"
         "host : /[a-zA-Z0-9-.]+/;"
         "port : /[0-9]+/;"
-        "path :  /[\\/]([a-zA-Z0-9-.]+[\\/]?)*/ ;",
+        "path :  /[\\/][a-zA-Z0-9-.\\/]*/ ;",
         url, scheme, host, port, path, NULL);
 
     if( err != NULL){
