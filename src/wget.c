@@ -18,7 +18,12 @@ typedef struct URL_Components_t {
     char * port;
     char * path;
 } URL_Components_t;
-
+void init_URL_Components_t(URL_Components_t * URL){
+    URL->scheme = NULL;
+    URL->host = NULL;
+    URL->port = NULL;
+    URL->path = NULL;
+}
 void free_URL_Components_t(URL_Components_t * URL){
     free(URL->scheme);
     free(URL->host);
@@ -40,7 +45,7 @@ void find_component(mpc_ast_t *a, char * component, char ** found_contents) {
           memcpy(*found_contents, child->contents, strlen(child->contents)+1);
           break;
         }
-  }
+    }
 
 }
 
@@ -85,6 +90,9 @@ void parse_URL(char * URL, URL_Components_t * URL_Componenets){
 }
 
 void form_get_req(char * host, char * path, char * get_req_buffer, int connection_flag){
+    if(path == NULL){
+        path = "/";
+    }
     if (connection_flag){
         snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n", path, host);
     }
@@ -107,6 +115,7 @@ int main(int argc, char *argv[]){
     char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
 
     URL_Components_t URL_Components;
+    init_URL_Components_t(&URL_Components);
 
     if(argc != 2) {
         fprintf(stderr, "Usage: %s scheme://host/path\n", argv[0]);
