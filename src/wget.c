@@ -126,6 +126,18 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
     parse_URL(argv[1], &URL_Components);
+    if(URL_Components.port){
+        char * endptr, * str;
+        long val;
+        str = URL_Components.port;
+        val = strtol(str,&endptr,0);
+        if (val < 0 || val > 65535){
+            fprintf(stderr, "Port value in URL is outside of expected bounds\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    
+    service = URL_Components.scheme ? URL_Components.scheme : URL_Components.port;
     
 
     memset(&hints, 0, sizeof(hints));
