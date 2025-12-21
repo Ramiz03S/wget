@@ -10,7 +10,7 @@
 #include <errno.h>
 #include "mpc.h"
 #define GET_REQ_BUFF_SIZE 1024
-#define REC_BUFF_SIZE 1024
+#define RECV_BUFF_SIZE 1024
 
 typedef struct URL_Components_t {
     char * scheme;
@@ -18,12 +18,14 @@ typedef struct URL_Components_t {
     char * port;
     char * path;
 } URL_Components_t;
+
 void init_URL_Components_t(URL_Components_t * URL){
     URL->scheme = NULL;
     URL->host = NULL;
     URL->port = NULL;
     URL->path = NULL;
 }
+
 void free_URL_Components_t(URL_Components_t * URL){
     free(URL->scheme);
     free(URL->host);
@@ -101,12 +103,84 @@ void form_get_req(char * host, char * path, char * get_req_buffer, int connectio
     }
 }
 
+void parse_recv(char * recv_buffer){
+    mpc_parser_t *recv  = mpc_new("recv");
+    mpc_parser_t *first_line  = mpc_new("first_line");
+    mpc_parser_t *crlf  = mpc_new("crlf");
+    mpc_parser_t *sp  = mpc_new("sp");
+    mpc_parser_t *status  = mpc_new("status");
+    mpc_parser_t *header_line  = mpc_new("header_line");
+    mpc_parser_t *header_type  = mpc_new("header_type");
+    mpc_parser_t *header_value  = mpc_new("header_value");
+    mpc_parser_t *data  = mpc_new("data");
+
+    mpc_err_t *err = mpca_lang(MPCA_LANG_WHITESPACE_SENSITIVE,
+        "recv        : /^/ <first_line> <crlf> (<header_line> <crlf>)* <crlf>+ <data>? /$/;"
+        "crlf        : /(\\r\\n|\\n|\\r)/;"
+        "first_line  : \"HTTP/1.1\" <sp> <status> <sp> /[^\\r\\n]*/;"
+        "sp          : / /;"
+        "status      : /[0-9]{3}/;"
+        "header_line : <header_type> \":\" <sp> <header_value>;"
+        "header_type : /[a-zA-Z0-9-]+/;"
+        "header_value: /[^\\r\\n]*/;"
+        "data        : /(.|\\r|\\n)*/;",
+        recv, first_line, crlf, sp, status, header_line, header_type, header_value, data, NULL);
+
+
+    if( err != NULL){
+        fprintf(stderr, "mpca_lang() failed: %s\n",err->failure);
+        exit(EXIT_FAILURE);
+    };
+
+    mpc_result_t r;
+    mpc_ast_t * output;
+    
+    if(mpc_parse("recv buff", recv_buffer, recv, &r)){
+        mpc_ast_print(r.output);
+        mpc_ast_delete(r.output);
+    } else {
+        mpc_err_print(r.error);
+        mpc_err_delete(r.error);
+        
+    }
+    mpc_cleanup(7, recv, first_line, status, header_line, header_type, header_value, data);
+}
+
+int send_recv_loop(int client_fd, URL_Components_t URL_Components, char * get_req_buffer, char * recv_buffer){
+    int bytes_sent, bytes_received;
+    int total_bytes_received = 0;
+    size_t get_req_buffer_len;
+
+    form_get_req(URL_Components.host, URL_Components.path, get_req_buffer, 1);
+    get_req_buffer_len = strlen(get_req_buffer);
+
+    bytes_sent = send(client_fd, get_req_buffer, get_req_buffer_len, 0);
+    if( bytes_sent == -1 || bytes_sent < get_req_buffer_len){
+        log_stderr;
+        return -1;
+    }
+
+    bytes_received = recv(client_fd, recv_buffer, RECV_BUFF_SIZE - 1, 0);
+    total_bytes_received += bytes_received;
+    if(bytes_received == -1){
+        log_stderr;
+        return -1;
+    }
+    
+    recv_buffer[bytes_received] = '\0';
+    printf("%d BYTES SENT:\n%s\n", bytes_sent, get_req_buffer);
+    printf("%d BYTES RECEIVED:\n%s\n\n", bytes_received, recv_buffer);
+    parse_recv(recv_buffer);
+    
+
+}
+
 int main(int argc, char *argv[]){
     
     int client_fd;
     int ret_getaddrinfo;
-    int bytes_sent, bytes_received;
-    int total_bytes_received = 0;
+    
+    
 
     struct addrinfo hints;
     struct addrinfo * result, * next;
@@ -114,7 +188,7 @@ int main(int argc, char *argv[]){
     char ip[INET6_ADDRSTRLEN];
     uint16_t port;
 
-    char rec_buffer[REC_BUFF_SIZE] = {0};
+    char recv_buffer[RECV_BUFF_SIZE] = {0};
     char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
 
     URL_Components_t URL_Components;
@@ -139,7 +213,7 @@ int main(int argc, char *argv[]){
             exit(EXIT_FAILURE);
         }
     }
-    
+
     service = URL_Components.scheme ? URL_Components.scheme : URL_Components.port;
     
 
@@ -182,21 +256,8 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
     
-    // send and receive loop
-    form_get_req(URL_Components.host, URL_Components.path, get_req_buffer, 1);
-    bytes_sent = send(client_fd, get_req_buffer, strlen(get_req_buffer), 0);
-    if( bytes_sent == -1 || bytes_sent < strlen(get_req_buffer)){
-        log_stderr;
-    }
-    bytes_received = recv(client_fd, rec_buffer, sizeof(rec_buffer) - 1, 0);
-    total_bytes_received += bytes_received;
-    if(bytes_received == -1){
-        log_stderr;
-    }
-    rec_buffer[bytes_received] = '\0';
-    printf("%d BYTES SENT:\n%s\n", bytes_sent, get_req_buffer);
-    printf("%d BYTES RECEIVED:\n%s\n", bytes_received, rec_buffer);
-
+    // send and receive loop  
+    send_recv_loop(client_fd, URL_Components, get_req_buffer, recv_buffer);
 
     free_URL_Components_t(&URL_Components);
     freeaddrinfo(result);
