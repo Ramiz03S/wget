@@ -120,7 +120,7 @@ void parse_recv(char * recv_buffer){
         "first_line  : \"HTTP/1.1\" <sp> <status> <sp> /[^\\r\\n]*/;"
         "sp          : / /;"
         "status      : /[0-9]{3}/;"
-        "header_line : <header_type> \":\" <sp> <header_value>;"
+        "header_line : <header_type> \":\" /[ \t]?/ <header_value>;"
         "header_type : /[a-zA-Z0-9-]+/;"
         "header_value: /[^\\r\\n]*/;"
         "data        : /(.|\\r|\\n)*/;",
