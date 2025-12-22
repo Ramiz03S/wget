@@ -9,28 +9,45 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include "mpc.h"
-#define GET_REQ_BUFF_SIZE 1024
-#define RECV_BUFF_SIZE 1024
+#define GET_REQ_BUFF_SIZE 2048
+#define RECV_BUFF_SIZE 4096
 
-typedef struct URL_Components_t {
+typedef struct {
     char * scheme;
     char * host;
     char * port;
     char * path;
-} URL_Components_t;
+} URL_components_t;
 
-void init_URL_Components_t(URL_Components_t * URL){
+typedef struct {
+    int content_length;
+    int chunked_encoding;
+    long status;
+} response_components_t;
+
+void init_URL_components_t(URL_components_t * URL){
     URL->scheme = NULL;
     URL->host = NULL;
     URL->port = NULL;
     URL->path = NULL;
 }
 
-void free_URL_Components_t(URL_Components_t * URL){
+void init_response_components_t(response_components_t * recv){
+    recv->content_length = -1;
+    recv->status = -1;
+    recv->chunked_encoding = -1;
+}
+
+void free_URL_components_t(URL_components_t * URL){
     free(URL->scheme);
     free(URL->host);
     free(URL->port);
     free(URL->path);
+}
+
+long strtol_caller(char * num_str){
+    char * endptr;
+    return strtol(num_str,&endptr,0);
 }
 
 void log_stderr(){
@@ -38,7 +55,7 @@ void log_stderr(){
     exit(EXIT_FAILURE);
 }
 
-void find_component(mpc_ast_t *a, char * component, char ** found_contents) {
+void find_URL_component(mpc_ast_t *a, char * component, char ** found_contents) {
  
     for (int i = 0; i < a->children_num; i++) {
         mpc_ast_t * child = a->children[i];
@@ -51,7 +68,7 @@ void find_component(mpc_ast_t *a, char * component, char ** found_contents) {
 
 }
 
-void parse_URL(char * URL, URL_Components_t * URL_Componenets){
+void parse_URL(char * URL, URL_components_t * URL_Componenets){
     mpc_parser_t *url  = mpc_new("url");
     mpc_parser_t *scheme  = mpc_new("scheme");
     mpc_parser_t *host  = mpc_new("host");
@@ -77,10 +94,10 @@ void parse_URL(char * URL, URL_Components_t * URL_Componenets){
     if(mpc_parse("url input", URL, url, &r)){
         mpc_ast_print(r.output);
         output = (mpc_ast_t *)r.output;
-        find_component(output, "scheme", &(URL_Componenets->scheme));
-        find_component(output, "host", &(URL_Componenets->host));
-        find_component(output, "port", &(URL_Componenets->port));
-        find_component(output, "path", &(URL_Componenets->path));
+        find_URL_component(output, "scheme", &(URL_Componenets->scheme));
+        find_URL_component(output, "host", &(URL_Componenets->host));
+        find_URL_component(output, "port", &(URL_Componenets->port));
+        find_URL_component(output, "path", &(URL_Componenets->path));
         mpc_ast_delete(r.output);
     } else {
         mpc_err_print(r.error);
@@ -103,7 +120,58 @@ void form_get_req(char * host, char * path, char * get_req_buffer, int connectio
     }
 }
 
-void parse_recv(char * recv_buffer){
+void tree_traversal(mpc_ast_t * tree_node, response_components_t * response_components){
+    char * tag = tree_node->tag;
+    char * contents = tree_node->contents;
+    static int in_header_line = 0;
+    static int child_counter = 0;
+    static char * header_type;
+    mpc_ast_t * node_child;
+    size_t content_len = strlen(contents);
+
+    if(strstr(tag, "status")){
+        response_components->status = strtol_caller(contents);
+        in_header_line = 0;
+    }
+    else if (strstr(tag, "header_line"))
+    {
+        in_header_line = 1;
+        child_counter = 0;
+    }
+    else if (strstr(tag, "crlf")) {in_header_line = 0;}
+
+    if(in_header_line && child_counter==0){
+        
+        header_type = malloc(content_len + 1);
+        strcpy(header_type, contents);
+    }
+    if(in_header_line && child_counter==3){
+        
+        if(strstr(header_type, "Content-Length")){
+            response_components->content_length = strtol_caller(contents);
+        }  
+        if(strstr(header_type, "Transfer-Encoding")){
+            if(strstr(contents, "chunked")){
+                response_components->chunked_encoding = 1;
+            }
+            
+        }  
+        free(header_type);     
+    }
+
+    for(int i = 0; i < tree_node->children_num; i++){
+        
+        tree_traversal(tree_node->children[i], response_components);
+        child_counter++;
+    }
+    
+}
+
+void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * response_components){
+    char status_headers_buff[data_idx + 1];
+    mpc_result_t r;
+    mpc_ast_t * output;
+    
     mpc_parser_t *recv  = mpc_new("recv");
     mpc_parser_t *first_line  = mpc_new("first_line");
     mpc_parser_t *crlf  = mpc_new("crlf");
@@ -120,11 +188,9 @@ void parse_recv(char * recv_buffer){
         "first_line  : \"HTTP/1.1\" <sp> <status> <sp> /[^\\r\\n]*/;"
         "sp          : / /;"
         "status      : /[0-9]{3}/;"
-        "header_line : <header_type> \":\" /[ \t]?/ <header_value>;"
-        "header_type : /[a-zA-Z0-9-]+/;"
-        "header_value: /[^\\r\\n]*/;"
+        "header_line : /[a-zA-Z0-9-]+/ \":\" /[ \t]?/ /[^\\r\\n]*/;"
         "data        : /(.|\\r|\\n)*/;",
-        recv, first_line, crlf, sp, status, header_line, header_type, header_value, data, NULL);
+        recv, first_line, crlf, sp, status, header_line, data, NULL);
 
 
     if( err != NULL){
@@ -132,46 +198,93 @@ void parse_recv(char * recv_buffer){
         exit(EXIT_FAILURE);
     };
 
-    mpc_result_t r;
-    mpc_ast_t * output;
     
-    if(mpc_parse("recv buff", recv_buffer, recv, &r)){
+    memset(status_headers_buff, 0, data_idx + 1);
+    rewind(fptr);
+    if(fread(status_headers_buff, 1, data_idx, fptr) != data_idx){
+        log_stderr();
+    }
+
+    status_headers_buff[data_idx] = '\0';
+    
+    if(mpc_parse("status_headers_buff", status_headers_buff, recv, &r)){
         mpc_ast_print(r.output);
+        output = (mpc_ast_t *)r.output;
+        tree_traversal(output, response_components);
         mpc_ast_delete(r.output);
     } else {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
+        mpc_cleanup(7, recv, first_line, status, header_line, header_type, header_value, data);
+        exit(EXIT_FAILURE);
         
     }
     mpc_cleanup(7, recv, first_line, status, header_line, header_type, header_value, data);
 }
 
-int send_recv_loop(int client_fd, URL_Components_t URL_Components, char * get_req_buffer, char * recv_buffer){
-    int bytes_sent, bytes_received;
+void process_response(int client_fd){
+    FILE * response_fptr;
+    size_t data_idx;
+    int bytes_received;
+    long file_pos;
+    int reading_till_headers = 0;
     int total_bytes_received = 0;
+    char recv_buffer[RECV_BUFF_SIZE];
+    response_components_t response_components;
+
+    response_fptr = fopen("response", "wb+");
+    if(response_fptr == NULL){
+        log_stderr();
+    }
+
+    
+    char * temp = NULL;
+    while(!reading_till_headers){
+        
+        memset(recv_buffer, 0, RECV_BUFF_SIZE);
+        bytes_received = recv(client_fd, recv_buffer, RECV_BUFF_SIZE - 1, 0);
+        if(bytes_received == -1){
+            log_stderr;
+        }
+        recv_buffer[bytes_received] = '\0';
+        temp = strstr(recv_buffer, "\r\n\r\n");
+        if(temp){
+            data_idx = (temp - recv_buffer) + 4 + total_bytes_received;
+            reading_till_headers = 1;
+        }
+        total_bytes_received += bytes_received;
+        fwrite(recv_buffer, 1, bytes_received, response_fptr);
+    }
+
+    // parse status and headers
+    memset(&response_components, 0, sizeof(response_components));
+    init_response_components_t(&response_components);
+
+    file_pos = ftell(response_fptr);
+    if(file_pos == -1L){log_stderr();}
+    parse_status_headers(response_fptr, data_idx, &response_components);
+    fseek(response_fptr, file_pos, SEEK_SET);
+
+
+    
+    fclose(response_fptr);
+
+}
+
+int send_request(int client_fd, URL_components_t URL_components){
+    int bytes_sent;
     size_t get_req_buffer_len;
 
-    form_get_req(URL_Components.host, URL_Components.path, get_req_buffer, 1);
+    char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
+
+    form_get_req(URL_components.host, URL_components.path, get_req_buffer, 1);
     get_req_buffer_len = strlen(get_req_buffer);
 
     bytes_sent = send(client_fd, get_req_buffer, get_req_buffer_len, 0);
     if( bytes_sent == -1 || bytes_sent < get_req_buffer_len){
         log_stderr;
-        return -1;
     }
-
-    bytes_received = recv(client_fd, recv_buffer, RECV_BUFF_SIZE - 1, 0);
-    total_bytes_received += bytes_received;
-    if(bytes_received == -1){
-        log_stderr;
-        return -1;
-    }
-    
-    recv_buffer[bytes_received] = '\0';
     printf("%d BYTES SENT:\n%s\n", bytes_sent, get_req_buffer);
-    printf("%d BYTES RECEIVED:\n%s\n\n", bytes_received, recv_buffer);
-    parse_recv(recv_buffer);
-    
 
 }
 
@@ -180,19 +293,14 @@ int main(int argc, char *argv[]){
     int client_fd;
     int ret_getaddrinfo;
     
-    
-
     struct addrinfo hints;
     struct addrinfo * result, * next;
     char * service;
     char ip[INET6_ADDRSTRLEN];
     uint16_t port;
 
-    char recv_buffer[RECV_BUFF_SIZE] = {0};
-    char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
-
-    URL_Components_t URL_Components;
-    init_URL_Components_t(&URL_Components);
+    URL_components_t URL_components;
+    init_URL_components_t(&URL_components);
 
     if(argc != 2) {
         fprintf(stderr, "Usage: %s [(http | https)://]host[:port][/path/to/file]\n", argv[0]);
@@ -202,19 +310,17 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "Length of URL exceeds the limit of 2048 characters\n");
         exit(EXIT_FAILURE);
     }
-    parse_URL(argv[1], &URL_Components);
-    if(URL_Components.port){
-        char * endptr, * str;
+    parse_URL(argv[1], &URL_components);
+    if(URL_components.port){
         long val;
-        str = URL_Components.port;
-        val = strtol(str,&endptr,0);
+        val = strtol_caller(URL_components.port);
         if (val < 0 || val > 65535){
             fprintf(stderr, "Port value in URL is outside of expected bounds\n");
             exit(EXIT_FAILURE);
         }
     }
 
-    service = URL_Components.scheme ? URL_Components.scheme : URL_Components.port;
+    service = URL_components.scheme ? URL_components.scheme : URL_components.port;
     
 
     memset(&hints, 0, sizeof(hints));
@@ -227,7 +333,7 @@ int main(int argc, char *argv[]){
     hints.ai_next = NULL;
     
     
-    if((ret_getaddrinfo = getaddrinfo(URL_Components.host, service, &hints, &result)) != 0){
+    if((ret_getaddrinfo = getaddrinfo(URL_components.host, service, &hints, &result)) != 0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret_getaddrinfo));
         exit(EXIT_FAILURE);
     }
@@ -257,9 +363,10 @@ int main(int argc, char *argv[]){
     }
     
     // send and receive loop  
-    send_recv_loop(client_fd, URL_Components, get_req_buffer, recv_buffer);
+    send_request(client_fd, URL_components);
+    process_response(client_fd);
 
-    free_URL_Components_t(&URL_Components);
+    free_URL_components_t(&URL_components);
     freeaddrinfo(result);
     close(client_fd);
     return 0;
