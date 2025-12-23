@@ -223,7 +223,8 @@ void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * 
 }
 
 void process_response(int client_fd){
-    FILE * response_fptr;
+    int end_copying;
+    FILE * response_fptr, * final_file_fptr;
     size_t data_idx;
     int bytes_received;
     long file_pos;
@@ -235,6 +236,11 @@ void process_response(int client_fd){
 
     response_fptr = fopen("response", "wb+");
     if(response_fptr == NULL){
+        log_stderr();
+    }
+
+    final_file_fptr = fopen("file", "wb");
+    if(final_file_fptr == NULL){
         log_stderr();
     }
 
@@ -267,7 +273,7 @@ void process_response(int client_fd){
     // now we know the response status and whether the data contents were chunked or not
     fseek(response_fptr, file_pos, SEEK_SET);
 
-    if(response_components.content_length != -1){
+    if(response_components.content_length != -1 && response_components.status == 200){
         total_data_bytes_received = file_pos - data_idx;
 
         while(total_data_bytes_received < response_components.content_length){
@@ -282,7 +288,31 @@ void process_response(int client_fd){
         }
 
     }
+    
+    // rewrite the data portion only to a seperate file
+    fseek(response_fptr, data_idx, SEEK_SET);
+    end_copying = 0;
+    while(!end_copying){
+
+        clearerr(response_fptr);
+        memset(recv_buffer, 0, RECV_BUFF_SIZE);
+        bytes_received = fread(recv_buffer, 1, RECV_BUFF_SIZE, response_fptr);
+
+        
+        if(bytes_received < RECV_BUFF_SIZE){
+            if(feof(response_fptr) != 0){end_copying = 1;}
+            else{
+                log_stderr;
+            }
+        }
+        fwrite(recv_buffer, 1, bytes_received, final_file_fptr);
+    }
+    
+    fclose(final_file_fptr);
     fclose(response_fptr);
+    if(remove("response") != 0){
+        log_stderr();
+    }
 }
 
 int send_request(int client_fd, URL_components_t URL_components){
