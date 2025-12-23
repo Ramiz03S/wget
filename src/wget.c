@@ -229,6 +229,7 @@ void process_response(int client_fd){
     long file_pos;
     int reading_till_headers = 0;
     int total_bytes_received = 0;
+    int total_data_bytes_received = 0;
     char recv_buffer[RECV_BUFF_SIZE];
     response_components_t response_components;
 
@@ -263,18 +264,31 @@ void process_response(int client_fd){
     file_pos = ftell(response_fptr);
     if(file_pos == -1L){log_stderr();}
     parse_status_headers(response_fptr, data_idx, &response_components);
+    // now we know the response status and whether the data contents were chunked or not
     fseek(response_fptr, file_pos, SEEK_SET);
 
+    if(response_components.content_length != -1){
+        total_data_bytes_received = file_pos - data_idx;
 
-    
+        while(total_data_bytes_received < response_components.content_length){
+
+            memset(recv_buffer, 0, RECV_BUFF_SIZE);
+            bytes_received = recv(client_fd, recv_buffer, RECV_BUFF_SIZE, 0);
+            if(bytes_received == -1){
+                log_stderr;
+            }
+            total_data_bytes_received += bytes_received;
+            fwrite(recv_buffer, 1, bytes_received, response_fptr);
+        }
+
+    }
     fclose(response_fptr);
-
 }
 
 int send_request(int client_fd, URL_components_t URL_components){
     int bytes_sent;
     size_t get_req_buffer_len;
-
+    
     char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
 
     form_get_req(URL_components.host, URL_components.path, get_req_buffer, 1);
@@ -292,7 +306,7 @@ int main(int argc, char *argv[]){
     
     int client_fd;
     int ret_getaddrinfo;
-    
+
     struct addrinfo hints;
     struct addrinfo * result, * next;
     char * service;
