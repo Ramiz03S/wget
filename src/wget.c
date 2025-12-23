@@ -80,7 +80,7 @@ void parse_URL(char * URL, URL_components_t * URL_Componenets){
         "scheme : \"http\" | \"https\";"
         "host : /[a-zA-Z0-9-.]+/;"
         "port : /[0-9]+/;"
-        "path :  /[\\/][a-zA-Z0-9-.\\/]*/ ;",
+        "path :  /[\\/][a-zA-Z0-9.\\/_-]*/ ;",
         url, scheme, host, port, path, NULL);
 
     if( err != NULL){
