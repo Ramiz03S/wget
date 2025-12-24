@@ -224,39 +224,39 @@ void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * 
     mpc_cleanup(7, recv, first_line, status, header_line, header_type, header_value, data);
 }
 
-void get_chunked_response(int client_fd, FILE * response_fptr, size_t data_idx){
-    size_t carry_over_bytes;
+void get_chunked_response(int client_fd, FILE * response_fptr, char * recv_buff){
     int bytes_received;
-    long file_pos;
-    char * carry_over_buff;
-    char recv_buff[RECV_BUFF_SIZE];
-    
-    file_pos = ftell(response_fptr);
-    carry_over_bytes = file_pos - data_idx;
-    carry_over_buff = calloc(carry_over_bytes, 1);
+    int total_bytes_received;
+    long chunk_length;
+    char * chunk_length_buff;
+    int chunk_length_found = 0;
+    int next_idx = 1;
 
-    if(carry_over_bytes != 0){
-        fseek(response_fptr, data_idx, SEEK_SET);
-        fread(carry_over_buff, 1, carry_over_bytes, response_fptr);
-        bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE - carry_over_bytes - 1, 0);
+    memset(recv_buff, 0, RECV_BUFF_SIZE);
+    while(!chunk_length_found){
+        
+        bytes_received = recv(client_fd, recv_buff, 1, 0);
+
         if(bytes_received == -1){
             log_stderr;
         }
-        memmove(recv_buff + carry_over_bytes, recv_buff, bytes_received);
-        memcpy(recv_buff, carry_over_buff, carry_over_bytes);
-    }
-    else{
-        bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE - 1, 0);
-        if(bytes_received == -1){
-            log_stderr;
-        }
-    }
-    fseek(response_fptr, data_idx, SEEK_SET);
-    fwrite(recv_buff, 1, bytes_received + carry_over_bytes, response_fptr);
 
-    // parse the buffer into chunk length, chunk data, leftover chunks, terminating chunk
+        if(*recv_buff == ';' || *recv_buff == '\r' || *recv_buff == '\n'){
+            chunk_length_buff = calloc(next_idx , 1);
+            memcpy(chunk_length_buff, recv_buff + 1, next_idx - 1);
+            chunk_length_buff[next_idx - 1] = '\0';
+            chunk_length = strtol_caller(chunk_length_buff);
+            free(chunk_length_buff);
+            chunk_length_found = 1;
+        }
+        else{
+            recv_buff[next_idx] = recv_buff[0];
+            next_idx++;
+        }
+
+    }
     
-    free(carry_over_buff);
+    
 
 }
 
@@ -315,7 +315,7 @@ void process_response(int client_fd){
     // now we know the response status and whether the data contents were chunked or not
 
     if(response_components.chunked_encoding == 1 && response_components.status == 200){
-        get_chunked_response(client_fd, response_fptr, data_idx);
+        get_chunked_response(client_fd, response_fptr, recv_buff);
     }
     else if(response_components.content_length != -1 && response_components.status == 200){
         while(total_data_bytes_received < response_components.content_length){
