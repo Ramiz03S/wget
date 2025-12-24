@@ -168,7 +168,8 @@ void tree_traversal(mpc_ast_t * tree_node, response_components_t * response_comp
 }
 
 void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * response_components){
-    char status_headers_buff[data_idx + 1];
+    char status_headers_buff[data_idx + 1]; // one more for \0
+    int bytes_read;
     mpc_result_t r;
     mpc_ast_t * output;
     
@@ -199,9 +200,10 @@ void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * 
     };
 
     
-    memset(status_headers_buff, 0, data_idx + 1);
+    memset(status_headers_buff, 0, data_idx);
     rewind(fptr);
-    if(fread(status_headers_buff, 1, data_idx, fptr) != data_idx){
+    bytes_read = fread(status_headers_buff, 1, data_idx, fptr);
+    if(bytes_read != data_idx){
         log_stderr();
     }
 
@@ -267,7 +269,8 @@ void process_response(int client_fd){
     int reading_till_headers = 0;
     int total_bytes_received = 0;
     int total_data_bytes_received = 0;
-    char recv_buffer[RECV_BUFF_SIZE];
+    char recv_buff[RECV_BUFF_SIZE];
+    char carry_over_buff[RECV_BUFF_SIZE];
     response_components_t response_components;
 
     response_fptr = fopen("response", "wb+");
@@ -280,50 +283,50 @@ void process_response(int client_fd){
         log_stderr();
     }
 
-    
+    memset(carry_over_buff, 0, RECV_BUFF_SIZE);
+    memset(recv_buff, 0, RECV_BUFF_SIZE);
     char * temp = NULL;
     while(!reading_till_headers){
         
-        memset(recv_buffer, 0, RECV_BUFF_SIZE);
-        bytes_received = recv(client_fd, recv_buffer, RECV_BUFF_SIZE - 1, 0);
+        recv_buff[3] = recv_buff[2];
+        recv_buff[2] = recv_buff[1];
+        recv_buff[1] = recv_buff[0];
+
+        bytes_received = recv(client_fd, recv_buff, 1, 0);
+        total_bytes_received += bytes_received;
+
         if(bytes_received == -1){
             log_stderr;
         }
-        recv_buffer[bytes_received] = '\0';
-        temp = strstr(recv_buffer, "\r\n\r\n");
+        fwrite(recv_buff, 1, bytes_received, response_fptr);
+        recv_buff[4] = '\0';
+        temp = strstr(recv_buff, "\n\r\n\r");
         if(temp){
-            data_idx = (temp - recv_buffer) + 4 + total_bytes_received;
+            data_idx = total_bytes_received;
             reading_till_headers = 1;
-        }
-        total_bytes_received += bytes_received;
-        fwrite(recv_buffer, 1, bytes_received, response_fptr);
+        }        
     }
 
     // parse status and headers
     memset(&response_components, 0, sizeof(response_components));
     init_response_components_t(&response_components);
 
-    file_pos = ftell(response_fptr);
-    if(file_pos == -1L){log_stderr();}
     parse_status_headers(response_fptr, data_idx, &response_components);
     // now we know the response status and whether the data contents were chunked or not
-    fseek(response_fptr, file_pos, SEEK_SET);
 
     if(response_components.chunked_encoding == 1 && response_components.status == 200){
         get_chunked_response(client_fd, response_fptr, data_idx);
     }
     else if(response_components.content_length != -1 && response_components.status == 200){
-        total_data_bytes_received = file_pos - data_idx;
-
         while(total_data_bytes_received < response_components.content_length){
 
-            memset(recv_buffer, 0, RECV_BUFF_SIZE);
-            bytes_received = recv(client_fd, recv_buffer, RECV_BUFF_SIZE, 0);
+            memset(recv_buff, 0, RECV_BUFF_SIZE);
+            bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE, 0);
             if(bytes_received == -1){
                 log_stderr;
             }
             total_data_bytes_received += bytes_received;
-            fwrite(recv_buffer, 1, bytes_received, response_fptr);
+            fwrite(recv_buff, 1, bytes_received, response_fptr);
         }
 
     }
@@ -334,8 +337,8 @@ void process_response(int client_fd){
     while(!end_copying){
 
         clearerr(response_fptr);
-        memset(recv_buffer, 0, RECV_BUFF_SIZE);
-        bytes_received = fread(recv_buffer, 1, RECV_BUFF_SIZE, response_fptr);
+        memset(recv_buff, 0, RECV_BUFF_SIZE);
+        bytes_received = fread(recv_buff, 1, RECV_BUFF_SIZE, response_fptr);
 
         
         if(bytes_received < RECV_BUFF_SIZE){
@@ -344,7 +347,7 @@ void process_response(int client_fd){
                 log_stderr;
             }
         }
-        fwrite(recv_buffer, 1, bytes_received, final_file_fptr);
+        fwrite(recv_buff, 1, bytes_received, final_file_fptr);
     }
     
     fclose(final_file_fptr);
