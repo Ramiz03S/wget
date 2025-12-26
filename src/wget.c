@@ -77,7 +77,7 @@ void parse_URL(char * URL, URL_components_t * URL_Componenets){
     
     mpc_err_t * err = mpca_lang(MPCA_LANG_DEFAULT,
         "url : /^/ (<scheme>\"://\")? <host> (\":\"<port>)? <path>? (\"?\" /[^#\\r\\n]*/)? (\"#\" /[^\\r\\n]*/)? /$/;"
-        "scheme : \"http\" | \"https\";"
+        "scheme : \"https\" | \"http\";"
         "host : /[a-zA-Z0-9-.]+/;"
         "port : /[0-9]+/;"
         "path :  /[\\/][a-zA-Z0-9.\\/_-]*/ ;",
@@ -108,16 +108,18 @@ void parse_URL(char * URL, URL_components_t * URL_Componenets){
     mpc_cleanup(5, url, scheme, host, port, path);
 }
 
-void form_get_req(char * host, char * path, char * get_req_buffer, int connection_flag){
+void form_get_req(char * host, char * path, char * get_req_buffer){
     if(path == NULL){
         path = "/";
     }
-    if (connection_flag){
-        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n", path, host);
-    }
-    else{
-        snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host);
-    }
+    snprintf(get_req_buffer, GET_REQ_BUFF_SIZE - 1, "GET %s HTTP/1.1\r\n"
+                                                    "Host: %s\r\nConnection: keep-alive\r\n"
+                                                    "User-Agent: Wget/1.21.4\r\n"
+                                                    "Accept: */*\r\n"
+                                                    "Accept-Encoding: identity\r\n"
+                                                    "User-Agent: Wget/1.21.4\r\n"
+                                                    "\r\n", path, host);
+    
 }
 
 void tree_traversal(mpc_ast_t * tree_node, response_components_t * response_components){
@@ -210,7 +212,7 @@ void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * 
     status_headers_buff[data_idx] = '\0';
     
     if(mpc_parse("status_headers_buff", status_headers_buff, recv, &r)){
-        mpc_ast_print(r.output);
+        //mpc_ast_print(r.output);
         output = (mpc_ast_t *)r.output;
         tree_traversal(output, response_components);
         mpc_ast_delete(r.output);
@@ -463,7 +465,7 @@ int send_request(int client_fd, URL_components_t URL_components){
     
     char get_req_buffer[GET_REQ_BUFF_SIZE] = {0};
 
-    form_get_req(URL_components.host, URL_components.path, get_req_buffer, 1);
+    form_get_req(URL_components.host, URL_components.path, get_req_buffer);
     get_req_buffer_len = strlen(get_req_buffer);
 
     bytes_sent = send(client_fd, get_req_buffer, get_req_buffer_len, 0);
