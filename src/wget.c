@@ -45,9 +45,9 @@ void free_URL_components_t(URL_components_t * URL){
     free(URL->path);
 }
 
-long strtol_caller(char * num_str){
+long strtol_caller(char * num_str, int base){
     char * endptr;
-    return strtol(num_str,&endptr,0);
+    return strtol(num_str,&endptr, base);
 }
 
 void log_stderr(){
@@ -130,7 +130,7 @@ void tree_traversal(mpc_ast_t * tree_node, response_components_t * response_comp
     size_t content_len = strlen(contents);
 
     if(strstr(tag, "status")){
-        response_components->status = strtol_caller(contents);
+        response_components->status = strtol_caller(contents, 10);
         in_header_line = 0;
     }
     else if (strstr(tag, "header_line"))
@@ -148,7 +148,7 @@ void tree_traversal(mpc_ast_t * tree_node, response_components_t * response_comp
     if(in_header_line && child_counter==3){
         
         if(strstr(header_type, "Content-Length")){
-            response_components->content_length = strtol_caller(contents);
+            response_components->content_length = strtol_caller(contents, 10);
         }  
         if(strstr(header_type, "Transfer-Encoding")){
             if(strstr(contents, "chunked")){
@@ -401,7 +401,7 @@ int main(int argc, char *argv[]){
     parse_URL(argv[1], &URL_components);
     if(URL_components.port){
         long val;
-        val = strtol_caller(URL_components.port);
+        val = strtol_caller(URL_components.port, 10);
         if (val < 0 || val > 65535){
             fprintf(stderr, "Port value in URL is outside of expected bounds\n");
             exit(EXIT_FAILURE);
