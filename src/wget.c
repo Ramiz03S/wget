@@ -309,7 +309,7 @@ void get_chunked_response(int client_fd, FILE * response_fptr, char * recv_buff)
                 }
                 total_bytes_received += bytes_received;
                 
-                fwrite(recv_buff, 1, div.rem, response_fptr);
+                fwrite(recv_buff, 1, bytes_received, response_fptr);
             }
         }
 
@@ -335,7 +335,7 @@ void process_response(int client_fd){
     long file_pos;
     int reading_till_headers = 0;
     int total_bytes_received = 0;
-    int total_data_bytes_received = 0;
+    int total_data_bytes_received;
     char recv_buff[RECV_BUFF_SIZE];
     char carry_over_buff[RECV_BUFF_SIZE];
     response_components_t response_components;
@@ -380,22 +380,53 @@ void process_response(int client_fd){
 
     parse_status_headers(response_fptr, data_idx, &response_components);
     // now we know the response status and whether the data contents were chunked or not
-
-    if(response_components.chunked_encoding == 1 && response_components.status == 200){
+    if(response_components.status != 200){
+        fprintf(stderr, "Error: response status was %ld\n",response_components.status);
+    }
+    else if(response_components.chunked_encoding == 1 && response_components.status == 200){
         get_chunked_response(client_fd, response_fptr, recv_buff);
     }
     else if(response_components.content_length != -1 && response_components.status == 200){
-        while(total_data_bytes_received < response_components.content_length){
 
-            memset(recv_buff, 0, RECV_BUFF_SIZE);
-            bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE, 0);
-            if(bytes_received == -1){
-                log_stderr;
+        if(response_components.content_length <= RECV_BUFF_SIZE){
+            total_data_bytes_received = 0;
+            while(total_data_bytes_received != response_components.content_length){
+    
+                bytes_received = recv(client_fd, recv_buff, response_components.content_length - total_data_bytes_received, 0);
+                if(bytes_received == -1){
+                    log_stderr;
+                }
+                total_data_bytes_received += bytes_received;
+                fwrite(recv_buff, 1, bytes_received, response_fptr);
             }
-            total_data_bytes_received += bytes_received;
-            fwrite(recv_buff, 1, bytes_received, response_fptr);
         }
+        else{
+            ldiv_t div = ldiv((long)response_components.content_length, (long)RECV_BUFF_SIZE);
+            for(long i = 0; i < div.quot; i++){
+                total_data_bytes_received = 0;
+                while(RECV_BUFF_SIZE != total_data_bytes_received){
+                    bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE - total_data_bytes_received, 0);
+                    if(bytes_received == -1){
+                        log_stderr;
+                    }
+                    total_data_bytes_received += bytes_received;
+                    
+                    fwrite(recv_buff, 1, bytes_received, response_fptr);
+                }
+            }
 
+            total_data_bytes_received = 0;
+            while(div.rem != total_data_bytes_received){
+
+                bytes_received = recv(client_fd, recv_buff, div.rem - total_data_bytes_received, 0);
+                if(bytes_received == -1){
+                    log_stderr;
+                }
+                total_data_bytes_received += bytes_received;
+                
+                fwrite(recv_buff, 1, bytes_received, response_fptr);
+            }
+        }
     }
     
     // rewrite the data portion only to a seperate file
@@ -419,11 +450,11 @@ void process_response(int client_fd){
     
     fclose(final_file_fptr);
     fclose(response_fptr);
-    /*
+    
     if(remove("response") != 0){
         log_stderr();
     }
-    */
+    
 }
 
 int send_request(int client_fd, URL_components_t URL_components){
