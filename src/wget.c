@@ -226,36 +226,103 @@ void parse_status_headers(FILE * fptr, size_t data_idx, response_components_t * 
 
 void get_chunked_response(int client_fd, FILE * response_fptr, char * recv_buff){
     int bytes_received;
-    int total_bytes_received;
+    int next_idx;
     long chunk_length;
     char * chunk_length_buff;
-    int chunk_length_found = 0;
-    int next_idx = 1;
+    int total_bytes_received;
+    int chunk_length_found;
+    int terminating_chunk_found = 0;
 
-    memset(recv_buff, 0, RECV_BUFF_SIZE);
-    while(!chunk_length_found){
+    while(!terminating_chunk_found){
+
+        memset(recv_buff, 0, RECV_BUFF_SIZE);
+        next_idx = 1;
+        chunk_length_found = 0;
+        total_bytes_received = 0;
+        while(!chunk_length_found){
+            bytes_received = recv(client_fd, recv_buff, 1, 0);
+
+            if(bytes_received == -1){
+                log_stderr;
+            }
+
+            if(*recv_buff == ';' || *recv_buff == '\r' || *recv_buff == '\n'){
+                chunk_length_buff = calloc(next_idx , 1);
+                memcpy(chunk_length_buff, recv_buff + 1, next_idx - 1);
+                chunk_length_buff[next_idx - 1] = '\0';
+                chunk_length = strtol_caller(chunk_length_buff, 16);
+                
+                chunk_length_found = 1;
+            }
+            else{
+                recv_buff[next_idx] = recv_buff[0];
+                next_idx++;
+            }
+        }
+
+        while(recv_buff[0] != '\n'){
+            bytes_received = recv(client_fd, recv_buff, 1, 0);
+            if(bytes_received == -1){
+                log_stderr;
+            }
+        }
+        if(chunk_length == 0){
+            terminating_chunk_found = 1;
+        }
+        else if(chunk_length <= RECV_BUFF_SIZE){
+
+            while(chunk_length != total_bytes_received){
+
+                bytes_received = recv(client_fd, recv_buff, chunk_length - total_bytes_received, 0);
+                if(bytes_received == -1){
+                    log_stderr;
+                }
+                total_bytes_received += bytes_received;
+                
+                fwrite(recv_buff, 1, bytes_received, response_fptr);
+            }
+        }
+
         
-        bytes_received = recv(client_fd, recv_buff, 1, 0);
-
-        if(bytes_received == -1){
-            log_stderr;
-        }
-
-        if(*recv_buff == ';' || *recv_buff == '\r' || *recv_buff == '\n'){
-            chunk_length_buff = calloc(next_idx , 1);
-            memcpy(chunk_length_buff, recv_buff + 1, next_idx - 1);
-            chunk_length_buff[next_idx - 1] = '\0';
-            chunk_length = strtol_caller(chunk_length_buff);
-            free(chunk_length_buff);
-            chunk_length_found = 1;
-        }
         else{
-            recv_buff[next_idx] = recv_buff[0];
-            next_idx++;
+            ldiv_t div = ldiv(chunk_length, (long)RECV_BUFF_SIZE);
+            for(long i = 0; i < div.quot; i++){
+                total_bytes_received = 0;
+                while(RECV_BUFF_SIZE != total_bytes_received){
+                    bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE - total_bytes_received, 0);
+                    if(bytes_received == -1){
+                        log_stderr;
+                    }
+                    total_bytes_received += bytes_received;
+                    
+                    fwrite(recv_buff, 1, bytes_received, response_fptr);
+
+                }
+            }
+
+            total_bytes_received = 0;
+            while(div.rem != total_bytes_received){
+
+                bytes_received = recv(client_fd, recv_buff, div.rem - total_bytes_received, 0);
+                if(bytes_received == -1){
+                    log_stderr;
+                }
+                total_bytes_received += bytes_received;
+                
+                fwrite(recv_buff, 1, div.rem, response_fptr);
+            }
         }
+
+        while(recv_buff[0] != '\n'){
+            bytes_received = recv(client_fd, recv_buff, 1, 0);
+            if(bytes_received == -1){
+                log_stderr;
+            }
+        }
+
+        free(chunk_length_buff);
 
     }
-    
     
 
 }
