@@ -117,7 +117,6 @@ void form_get_req(char * host, char * path, char * get_req_buffer){
                                                     "User-Agent: Wget/1.21.4\r\n"
                                                     "Accept: */*\r\n"
                                                     "Accept-Encoding: identity\r\n"
-                                                    "User-Agent: Wget/1.21.4\r\n"
                                                     "\r\n", path, host);
     
 }
