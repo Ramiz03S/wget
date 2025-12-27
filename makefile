@@ -1,7 +1,2 @@
 b:
-	gcc -Iinclude src/wget.c src/mpc.c -o build/wget -lssl -g
-r:
-	./build/wget
-
-br:
-	gcc -Iinclude src/wget.c src/mpc.c -o build/wget -lssl -g && ./build/wget
+	gcc -Iinclude src/wget.c src/mpc.c src/http.c src/net.c src/url.c src/util.c -o build/wget -lssl -g
