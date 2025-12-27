@@ -68,7 +68,7 @@ void find_URL_component(mpc_ast_t *a, char * component, char ** found_contents) 
 
 }
 
-void parse_URL(char * URL, URL_components_t * URL_Componenets){
+void parse_URL(char * URL, URL_components_t * URL_components){
     mpc_parser_t *url  = mpc_new("url");
     mpc_parser_t *scheme  = mpc_new("scheme");
     mpc_parser_t *host  = mpc_new("host");
@@ -94,10 +94,10 @@ void parse_URL(char * URL, URL_components_t * URL_Componenets){
     if(mpc_parse("url input", URL, url, &r)){
         mpc_ast_print(r.output);
         output = (mpc_ast_t *)r.output;
-        find_URL_component(output, "scheme", &(URL_Componenets->scheme));
-        find_URL_component(output, "host", &(URL_Componenets->host));
-        find_URL_component(output, "port", &(URL_Componenets->port));
-        find_URL_component(output, "path", &(URL_Componenets->path));
+        find_URL_component(output, "scheme", &(URL_components->scheme));
+        find_URL_component(output, "host", &(URL_components->host));
+        find_URL_component(output, "port", &(URL_components->port));
+        find_URL_component(output, "path", &(URL_components->path));
         mpc_ast_delete(r.output);
     } else {
         mpc_err_print(r.error);
@@ -105,7 +105,77 @@ void parse_URL(char * URL, URL_components_t * URL_Componenets){
         mpc_cleanup(5, url, scheme, host, port, path);
         exit(EXIT_FAILURE);
     }
+    
+    if(URL_components->port){
+        long val;
+        val = strtol_caller(URL_components->port, 10);
+        if (val < 0 || val > 65535){
+            fprintf(stderr, "Port value in URL is outside of expected bounds\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if(!URL_components->scheme && !URL_components->port){
+        // we default to https if not provided by user
+        char https_port[4] = "443";
+        URL_components->port = (char *)malloc(4);
+        strcpy(URL_components->port, https_port);
+    }
+
     mpc_cleanup(5, url, scheme, host, port, path);
+}
+
+void make_connection(int * client_fd, URL_components_t * URL_components){
+
+    int ret_getaddrinfo;
+    struct addrinfo hints;
+    struct addrinfo * result, * next;
+    char * service;
+    char ip[INET6_ADDRSTRLEN];
+    uint16_t port;
+
+    service = URL_components->scheme ? URL_components->scheme : URL_components->port;
+    
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+    
+    
+    if((ret_getaddrinfo = getaddrinfo(URL_components->host, service, &hints, &result)) != 0){
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret_getaddrinfo));
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Canonname: %s\n", result->ai_canonname ? result->ai_canonname : "Not Found");
+    for(next = result; next != NULL; next = next->ai_next){
+        printf("Creating Socket for family: %d, type: %d, protocol: %d\n",next->ai_family, next->ai_socktype, next->ai_protocol);
+        if((*client_fd = socket(next->ai_family, next->ai_socktype, next->ai_protocol)) == -1){
+            printf("Socket creating failed\n");
+            continue;
+        }
+        inet_ntop(next->ai_family, next->ai_addr, ip, sizeof(ip));
+        printf("Attempting connection to address: %s\n", ip);
+        if ((connect(*client_fd, next->ai_addr, next->ai_addrlen)) == -1) {
+            close(*client_fd);
+            log_stderr;
+        }
+        else {
+            printf("Connection Successful to address: %s\n", ip);
+            break;
+        }
+    }
+
+    if(next == NULL){
+        fprintf(stderr, "Could not create socket.\n");
+        exit(EXIT_FAILURE);
+    }
+    freeaddrinfo(result);
 }
 
 void form_get_req(char * host, char * path, char * get_req_buffer){
@@ -478,17 +548,11 @@ int send_request(int client_fd, URL_components_t URL_components){
 int main(int argc, char *argv[]){
     
     int client_fd;
-    int ret_getaddrinfo;
-
-    struct addrinfo hints;
-    struct addrinfo * result, * next;
-    char * service;
-    char ip[INET6_ADDRSTRLEN];
-    uint16_t port;
-
     URL_components_t URL_components;
+    
     init_URL_components_t(&URL_components);
 
+    // input checks
     if(argc != 2) {
         fprintf(stderr, "Usage: %s [(http | https)://]host[:port][/path/to/file]\n", argv[0]);
         exit(EXIT_FAILURE);
@@ -497,64 +561,16 @@ int main(int argc, char *argv[]){
         fprintf(stderr, "Length of URL exceeds the limit of 2048 characters\n");
         exit(EXIT_FAILURE);
     }
+
     parse_URL(argv[1], &URL_components);
-    if(URL_components.port){
-        long val;
-        val = strtol_caller(URL_components.port, 10);
-        if (val < 0 || val > 65535){
-            fprintf(stderr, "Port value in URL is outside of expected bounds\n");
-            exit(EXIT_FAILURE);
-        }
-    }
 
-    service = URL_components.scheme ? URL_components.scheme : URL_components.port;
-    
+    make_connection(&client_fd, &URL_components);
 
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
-    hints.ai_protocol = 0;
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-    
-    
-    if((ret_getaddrinfo = getaddrinfo(URL_components.host, service, &hints, &result)) != 0){
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret_getaddrinfo));
-        exit(EXIT_FAILURE);
-    }
-    
-    printf("Canonname: %s\n", result->ai_canonname ? result->ai_canonname : "Not Found");
-    for(next = result; next != NULL; next = next->ai_next){
-        printf("Creating Socket for family: %d, type: %d, protocol: %d\n",next->ai_family, next->ai_socktype, next->ai_protocol);
-        if((client_fd = socket(next->ai_family, next->ai_socktype, next->ai_protocol)) == -1){
-            printf("Socket creating failed\n");
-            continue;
-        }
-        inet_ntop(next->ai_family, next->ai_addr, ip, sizeof(ip));
-        printf("Attempting connection to address: %s\n", ip);
-        if ((connect(client_fd, next->ai_addr, next->ai_addrlen)) == -1) {
-            close(client_fd);
-            log_stderr;
-        }
-        else {
-            printf("Connection Successful to address: %s\n", ip);
-            break;
-        }
-    }
-
-    if(next == NULL){
-        fprintf(stderr, "Could not create socket.\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    // send and receive loop  
     send_request(client_fd, URL_components);
+
     process_response(client_fd);
 
     free_URL_components_t(&URL_components);
-    freeaddrinfo(result);
     close(client_fd);
     return 0;
 }
