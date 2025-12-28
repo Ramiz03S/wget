@@ -1,6 +1,8 @@
+#include <https.h>
+#include <http_common.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <openssl/ssl.h>
+
 
 void ssl_ctx_init(SSL_CTX * ctx){
     /*
@@ -100,11 +102,3 @@ void ssl_handshake(SSL * ssl){
     }
 }
 
-int main(){
-
-    SSL_CTX * ctx;
-    SSL * ssl;
-    BIO *bio;
-
-    return 0;
-}

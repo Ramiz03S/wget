@@ -2,8 +2,7 @@
 #define HTTP_H
 
 #include "url.h"
-#define GET_REQ_BUFF_SIZE 2048
-#define RECV_BUFF_SIZE 4096
+
 
 void process_http_response(int client_fd);
 
