@@ -6,7 +6,7 @@
 #include <string.h>
 #include <sys/socket.h>
 
-void static get_chunked_response(int client_fd, FILE * response_fptr, char * recv_buff){
+void static http_get_chunked_response(int client_fd, FILE * response_fptr, char * recv_buff){
     int bytes_received;
     int next_idx;
     long chunk_length;
@@ -109,7 +109,7 @@ void static get_chunked_response(int client_fd, FILE * response_fptr, char * rec
 
 }
 
-void static get_content_length_response(int client_fd, FILE * response_fptr, char *  recv_buff, int content_length){
+void static http_get_content_length_response(int client_fd, FILE * response_fptr, char *  recv_buff, int content_length){
     int bytes_received;
     int total_data_bytes_received;
     if(content_length <= RECV_BUFF_SIZE){
@@ -153,7 +153,7 @@ void static get_content_length_response(int client_fd, FILE * response_fptr, cha
     }
 }
 
-void process_http_response(int client_fd){
+void http_process_response(int client_fd){
     int end_copying;
     FILE * response_fptr, * final_file_fptr;
     size_t data_idx;
@@ -210,10 +210,10 @@ void process_http_response(int client_fd){
         fprintf(stderr, "Error: response status was %ld\n",response_components.status);
     }
     else if(response_components.chunked_encoding == 1 && response_components.status == 200){
-        get_chunked_response(client_fd, response_fptr, recv_buff);
+        http_get_chunked_response(client_fd, response_fptr, recv_buff);
     }
     else if(response_components.content_length != -1 && response_components.status == 200){
-        get_content_length_response(client_fd, response_fptr, recv_buff, response_components.content_length);
+        http_get_content_length_response(client_fd, response_fptr, recv_buff, response_components.content_length);
     }
     
     // rewrite the data portion only to a seperate file
@@ -244,7 +244,7 @@ void process_http_response(int client_fd){
     
 }
 
-int send_http_request(int client_fd, URL_components_t URL_components){
+int http_send_request(int client_fd, URL_components_t URL_components){
     int bytes_sent;
     size_t get_req_buffer_len;
     

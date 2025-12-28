@@ -4,8 +4,8 @@
 #include "url.h"
 
 
-void process_http_response(int client_fd);
+void http_process_response(int client_fd);
 
-int send_http_request(int client_fd, URL_components_t URL_components);
+int http_send_request(int client_fd, URL_components_t URL_components);
 
 #endif
