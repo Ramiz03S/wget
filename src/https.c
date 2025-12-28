@@ -404,9 +404,17 @@ void https_shutdown_and_cleanup(SSL_CTX ** ctx, SSL ** ssl){
 
     ret = SSL_shutdown(*ssl);
     if (ret != 1) {
-        // TODO: Error shutting down
-        fprintf(stderr, "Error shutting down\n");
-        exit(EXIT_FAILURE);
+        if(ret == 0){
+            ret = SSL_shutdown(*ssl);
+            if( ret != 1){
+                fprintf(stderr, "Error shutting down\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+        else{
+            fprintf(stderr, "Error shutting down\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     SSL_free(*ssl);
