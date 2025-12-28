@@ -236,6 +236,50 @@ void static get_chunked_response(int client_fd, FILE * response_fptr, char * rec
 
 }
 
+void static get_content_length_response(int client_fd, FILE * response_fptr, char *  recv_buff, int content_length){
+    int bytes_received;
+    int total_data_bytes_received;
+    if(content_length <= RECV_BUFF_SIZE){
+        total_data_bytes_received = 0;
+        while(total_data_bytes_received != content_length){
+
+            bytes_received = recv(client_fd, recv_buff, content_length - total_data_bytes_received, 0);
+            if(bytes_received == -1){
+                log_stderr();
+            }
+            total_data_bytes_received += bytes_received;
+            fwrite(recv_buff, 1, bytes_received, response_fptr);
+        }
+    }
+    else{
+        ldiv_t div = ldiv((long)content_length, (long)RECV_BUFF_SIZE);
+        for(long i = 0; i < div.quot; i++){
+            total_data_bytes_received = 0;
+            while(RECV_BUFF_SIZE != total_data_bytes_received){
+                bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE - total_data_bytes_received, 0);
+                if(bytes_received == -1){
+                    log_stderr();
+                }
+                total_data_bytes_received += bytes_received;
+                
+                fwrite(recv_buff, 1, bytes_received, response_fptr);
+            }
+        }
+
+        total_data_bytes_received = 0;
+        while(div.rem != total_data_bytes_received){
+
+            bytes_received = recv(client_fd, recv_buff, div.rem - total_data_bytes_received, 0);
+            if(bytes_received == -1){
+                log_stderr();
+            }
+            total_data_bytes_received += bytes_received;
+            
+            fwrite(recv_buff, 1, bytes_received, response_fptr);
+        }
+    }
+}
+
 void process_http_response(int client_fd){
     int end_copying;
     FILE * response_fptr, * final_file_fptr;
@@ -244,7 +288,7 @@ void process_http_response(int client_fd){
     long file_pos;
     int reading_till_headers = 0;
     int total_bytes_received = 0;
-    int total_data_bytes_received;
+    
     char recv_buff[RECV_BUFF_SIZE];
     char carry_over_buff[RECV_BUFF_SIZE];
     response_components_t response_components;
@@ -296,46 +340,7 @@ void process_http_response(int client_fd){
         get_chunked_response(client_fd, response_fptr, recv_buff);
     }
     else if(response_components.content_length != -1 && response_components.status == 200){
-
-        if(response_components.content_length <= RECV_BUFF_SIZE){
-            total_data_bytes_received = 0;
-            while(total_data_bytes_received != response_components.content_length){
-    
-                bytes_received = recv(client_fd, recv_buff, response_components.content_length - total_data_bytes_received, 0);
-                if(bytes_received == -1){
-                    log_stderr();
-                }
-                total_data_bytes_received += bytes_received;
-                fwrite(recv_buff, 1, bytes_received, response_fptr);
-            }
-        }
-        else{
-            ldiv_t div = ldiv((long)response_components.content_length, (long)RECV_BUFF_SIZE);
-            for(long i = 0; i < div.quot; i++){
-                total_data_bytes_received = 0;
-                while(RECV_BUFF_SIZE != total_data_bytes_received){
-                    bytes_received = recv(client_fd, recv_buff, RECV_BUFF_SIZE - total_data_bytes_received, 0);
-                    if(bytes_received == -1){
-                        log_stderr();
-                    }
-                    total_data_bytes_received += bytes_received;
-                    
-                    fwrite(recv_buff, 1, bytes_received, response_fptr);
-                }
-            }
-
-            total_data_bytes_received = 0;
-            while(div.rem != total_data_bytes_received){
-
-                bytes_received = recv(client_fd, recv_buff, div.rem - total_data_bytes_received, 0);
-                if(bytes_received == -1){
-                    log_stderr();
-                }
-                total_data_bytes_received += bytes_received;
-                
-                fwrite(recv_buff, 1, bytes_received, response_fptr);
-            }
-        }
+        get_content_length_response(client_fd, response_fptr, recv_buff, response_components.content_length);
     }
     
     // rewrite the data portion only to a seperate file
